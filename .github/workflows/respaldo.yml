@@ -1,0 +1,38 @@
+# Respaldo semanal de TODOS los datos (sin fotos), cifrado con tu clave.
+# Queda guardado 90 días en Actions → "Respaldo semanal" → Artifacts.
+# Requiere los secrets SUPABASE_SERVICE_KEY y BACKUP_CLAVE (ver GUIA.md).
+name: Respaldo semanal
+
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  respaldo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Descargar y cifrar datos
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BACKUP_CLAVE: ${{ secrets.BACKUP_CLAVE }}
+        run: |
+          export SUPABASE_URL=$(grep -E '^VITE_SUPABASE_URL=' .env.production 2>/dev/null | cut -d= -f2-)
+          if [ -z "$SUPABASE_SERVICE_KEY" ] || [ -z "$BACKUP_CLAVE" ]; then echo "Respaldo no configurado (faltan secrets)"; exit 0; fi
+          node scripts/backup.mjs respaldo.json
+          gzip -9 respaldo.json
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in respaldo.json.gz -out "vakapo-respaldo-$(date -u +%F).json.gz.enc" -pass env:BACKUP_CLAVE
+          rm respaldo.json.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vakapo-respaldo
+          path: vakapo-respaldo-*.enc
+          retention-days: 90
+          if-no-files-found: ignore
